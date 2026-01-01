@@ -14,6 +14,7 @@ export function setupSwagger(app: INestApplication): void {
     .addBearerAuth()
     .addServer(`http://${url}:${port}`)
     .addTag('Authentication')
+    .addTag('Transactions')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
