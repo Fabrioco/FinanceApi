@@ -1,81 +1,113 @@
+import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
   IsDateString,
   IsEnum,
   IsNumber,
   IsOptional,
-  IsPositive,
   IsString,
+  Min,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { TransactionType } from '../entity/transaction.entity';
+
+export enum TransactionType {
+  INCOME = 'income',
+  EXPENSE = 'expense',
+}
 
 export class CreateTransactionDto {
-  @ApiProperty({ example: 'Salary for June' })
+  // =====================
+  // CAMPOS BASE
+  // =====================
+
+  @ApiProperty({ example: 'Salary' })
   @IsString()
   title: string;
 
   @ApiProperty({ example: 2500.75 })
-  @IsNumber({}, { message: 'Value must be a number' })
-  @IsPositive({ message: 'Value must be greater than zero' })
+  @IsNumber()
+  @Min(0.01)
   value: number;
 
   @ApiProperty({ example: 'income', enum: TransactionType })
-  @IsEnum(TransactionType, {
-    message: 'Type must be INCOME or EXPENSE',
-  })
+  @IsEnum(TransactionType)
   type: TransactionType;
 
   @ApiProperty({ example: 'Salary' })
   @IsString()
   category: string;
 
-  @ApiProperty({ example: '2025-12-24' })
-  @IsDateString({}, { message: 'Date must be YYYY-MM-DD' })
+  @ApiProperty({ example: '2025-10-15' })
+  @IsDateString()
   date: string;
 
-  @ApiProperty({ example: false, required: false })
+  // =====================
+  // FIXA
+  // =====================
+
+  @ApiProperty({ example: true })
   @IsOptional()
   @IsBoolean()
   isFixed?: boolean;
 
-  @ApiProperty({ example: false, required: false })
-  @IsOptional()
-  @IsBoolean()
-  isInstallment?: boolean;
-
-  @ApiProperty({
-    example: 1,
-    required: false,
-    description: 'Only for fixed transactions',
-  })
+  /**
+   * Usado apenas quando for
+   * uma ocorrência específica da fixa
+   */
+  @ApiProperty({ example: 1 })
   @IsOptional()
   @IsNumber()
   originId?: number;
 
-  @ApiProperty({
-    example: 1,
-    required: false,
-    description: 'Index of the installment (starts at 1)',
-  })
+  /**
+   * YYYY-MM
+   */
+  @ApiProperty({ example: '2025-10' })
   @IsOptional()
-  @IsNumber()
-  installmentIndex?: number;
+  @IsString()
+  startMonth?: string;
 
-  @ApiProperty({
-    example: 12,
-    required: false,
-    description: 'Total number of installments',
-  })
+  /**
+   * YYYY-MM ou null
+   */
+  @ApiProperty({ example: '2025-10' })
+  @IsOptional()
+  @IsString()
+  endMonth?: string | null;
+
+  // =====================
+  // PARCELAMENTO
+  // =====================
+
+  @ApiProperty({ example: true })
+  @IsOptional()
+  @IsBoolean()
+  isInstallment?: boolean;
+
+  /**
+   * TOTAL de parcelas
+   * (somente na criação)
+   */
+  @ApiProperty({ example: 3 })
   @IsOptional()
   @IsNumber()
+  @Min(2)
   installmentTotal?: number;
 
-  @ApiProperty({
-    example: 10,
-    required: false,
-    description: 'Parent transaction id (installment group)',
-  })
+  /**
+   * Índice da parcela
+   * (uso interno / edição)
+   */
+  @ApiProperty({ example: 1 })
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  installmentIndex?: number;
+
+  /**
+   * ID da transação pai
+   * (parcelas já criadas)
+   */
+  @ApiProperty({ example: 1 })
   @IsOptional()
   @IsNumber()
   parentId?: number;

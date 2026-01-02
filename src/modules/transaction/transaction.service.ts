@@ -23,8 +23,9 @@ export class TransactionService {
   // CREATE
   // =========================
   async createTransaction(dto: CreateTransactionDto, userId: number) {
-    console.log(userId);
-    // ❌ Nunca pode ser fixa e parcelada
+    // =========================
+    // SANIDADE BÁSICA
+    // =========================
     if (dto.isFixed && dto.isInstallment) {
       throw new BadRequestException(
         'A transaction cannot be both fixed and installment',
@@ -32,58 +33,62 @@ export class TransactionService {
     }
 
     // =========================
-    // FIXA
+    // PARCELAMENTO (CRIAÇÃO)
     // =========================
-    if (dto.isFixed) {
-      if (dto.parentId || dto.installmentIndex || dto.installmentTotal) {
-        throw new BadRequestException(
-          'Fixed transactions cannot have installment fields',
-        );
-      }
-
-      // originId é OPCIONAL:
-      // - null → transação origem
-      // - preenchido → transação gerada
-      if (dto.originId) {
-        const origin = await this.repo.findOne({
-          where: { id: dto.originId, userId },
-        });
-
-        if (!origin) {
-          throw new BadRequestException('Invalid origin transaction');
-        }
-      }
-    }
-
-    // =========================
-    // PARCELADA
-    // =========================
-    if (dto.isInstallment) {
+    if (dto.isInstallment && !dto.parentId) {
       if (!dto.installmentTotal || dto.installmentTotal < 2) {
         throw new BadRequestException('Installment total must be at least 2');
       }
 
-      if (
-        !dto.installmentIndex ||
-        dto.installmentIndex < 1 ||
-        dto.installmentIndex > dto.installmentTotal
-      ) {
-        throw new BadRequestException('Invalid installment index');
+      // 1️⃣ cria o PAI (não aparece no app)
+      const parent = await this.repo.save(
+        this.repo.create({
+          title: dto.title,
+          value: dto.value,
+          type: dto.type,
+          category: dto.category,
+          date: dto.date,
+          userId,
+          isInstallment: false,
+        }),
+      );
+
+      // 2️⃣ cria as parcelas
+      const installmentValue = Number(
+        (dto.value / dto.installmentTotal).toFixed(2),
+      );
+
+      const installments: TransactionEntity[] = [];
+
+      for (let i = 1; i <= dto.installmentTotal; i++) {
+        const installment = this.repo.create({
+          title: `${dto.title} (${i}/${dto.installmentTotal})`,
+          value: installmentValue,
+          type: dto.type,
+          category: dto.category,
+          date: this.addMonths(dto.date, i - 1),
+          isInstallment: true,
+          installmentIndex: i,
+          installmentTotal: dto.installmentTotal,
+          parentId: parent.id,
+          userId,
+        });
+
+        installments.push(installment);
       }
 
-      if (dto.originId) {
-        throw new BadRequestException(
-          'Installment transactions cannot have originId',
-        );
-      }
+      await this.repo.save(installments);
 
-      // parentId obrigatório nas parcelas
-      if (!dto.parentId) {
-        throw new BadRequestException(
-          'Installment transactions must have a parentId',
-        );
-      }
+      return {
+        parent,
+        installments,
+      };
+    }
 
+    // =========================
+    // PARCELA INDIVIDUAL
+    // =========================
+    if (dto.isInstallment && dto.parentId) {
       const parent = await this.repo.findOne({
         where: { id: dto.parentId, userId },
       });
@@ -91,22 +96,53 @@ export class TransactionService {
       if (!parent) {
         throw new BadRequestException('Invalid parent transaction');
       }
+
+      if (
+        !dto.installmentIndex ||
+        !dto.installmentTotal ||
+        dto.installmentIndex < 1 ||
+        dto.installmentIndex > dto.installmentTotal
+      ) {
+        throw new BadRequestException('Invalid installment data');
+      }
+
+      const installment = this.repo.create({
+        ...dto,
+        userId,
+      });
+
+      return await this.repo.save(installment);
+    }
+
+    // =========================
+    // FIXA (ORIGEM)
+    // =========================
+    if (dto.isFixed) {
+      if (dto.originId) {
+        throw new BadRequestException(
+          'Fixed origin transaction cannot have originId',
+        );
+      }
+      const fixed = this.repo.create({
+        ...dto,
+        userId,
+      });
+
+      return await this.repo.save(fixed);
     }
 
     // =========================
     // SIMPLES
     // =========================
-    if (!dto.isFixed && !dto.isInstallment) {
-      if (
-        dto.originId ||
-        dto.parentId ||
-        dto.installmentIndex ||
-        dto.installmentTotal
-      ) {
-        throw new BadRequestException(
-          'Simple transactions cannot have fixed or installment fields',
-        );
-      }
+    if (
+      dto.originId ||
+      dto.parentId ||
+      dto.installmentIndex ||
+      dto.installmentTotal
+    ) {
+      throw new BadRequestException(
+        'Simple transactions cannot have fixed or installment fields',
+      );
     }
 
     const transaction = this.repo.create({
@@ -114,8 +150,7 @@ export class TransactionService {
       userId,
     });
 
-    await this.repo.save(transaction);
-    return transaction;
+    return await this.repo.save(transaction);
   }
 
   // =========================
@@ -307,5 +342,11 @@ export class TransactionService {
       category,
       total,
     };
+  }
+
+  private addMonths(date: string, months: number): Date {
+    const d = new Date(date);
+    d.setMonth(d.getMonth() + months);
+    return d;
   }
 }
