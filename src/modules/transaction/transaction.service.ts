@@ -23,6 +23,7 @@ export class TransactionService {
   // CREATE
   // =========================
   async createTransaction(dto: CreateTransactionDto, userId: number) {
+    console.log(userId);
     // ❌ Nunca pode ser fixa e parcelada
     if (dto.isFixed && dto.isInstallment) {
       throw new BadRequestException(
@@ -149,6 +150,55 @@ export class TransactionService {
     });
   }
 
+  async getMonthlyProjection(userId: number, month: number, year: number) {
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+
+    // 1️⃣ Transações já no mês
+    const monthTransactions = await this.repo.find({
+      where: {
+        userId,
+        date: Between(startDate, endDate),
+      },
+    });
+
+    // 2️⃣ Transações fixas (independente do mês)
+    const fixedTransactions = await this.repo.find({
+      where: {
+        userId,
+        isFixed: true,
+      },
+    });
+
+    // 3️⃣ Unifica sem duplicar
+    const all = [
+      ...monthTransactions,
+      ...fixedTransactions.filter(
+        (f) => !monthTransactions.some((m) => m.id === f.id),
+      ),
+    ];
+
+    // 4️⃣ Soma
+    let income = 0;
+    let expense = 0;
+
+    for (const t of all) {
+      const value = Number(t.value);
+
+      if (t.type === TransactionType.INCOME) {
+        income += value;
+      } else {
+        expense += value;
+      }
+    }
+
+    return {
+      incomeProjected: income,
+      expenseProjected: expense,
+      balanceProjected: income - expense,
+    };
+  }
+
   // =========================
   // GET BY ID
   // =========================
@@ -191,12 +241,12 @@ export class TransactionService {
   async getTransactionsDashboard(userId: number, month: number, year: number) {
     const startDate = new Date(year, month - 1, 1);
     const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    console.log(startDate, endDate);
 
     const transactions = await this.repo.find({
       where: {
         userId,
         date: Between(startDate, endDate),
-        isFixed: false,
       },
       order: { date: 'DESC' },
     });
@@ -222,6 +272,40 @@ export class TransactionService {
     return {
       ...summary,
       totalBalance: summary.totalIncome - summary.totalExpense,
+    };
+  }
+
+  async getCategoryMostExpensive(userId: number) {
+    if (!userId) {
+      throw new BadRequestException('User id is required');
+    }
+
+    const transactions = await this.repo.find({
+      where: {
+        userId,
+        type: TransactionType.EXPENSE, // 👈 importante
+      },
+    });
+
+    if (!transactions.length) {
+      return null;
+    }
+
+    const totalsByCategory = transactions.reduce(
+      (acc: Record<string, number>, t) => {
+        acc[t.category] = (acc[t.category] || 0) + Number(t.value);
+        return acc;
+      },
+      {},
+    );
+
+    const [category, total] = Object.entries(totalsByCategory).reduce(
+      (max, current) => (current[1] > max[1] ? current : max),
+    );
+
+    return {
+      category,
+      total,
     };
   }
 }
